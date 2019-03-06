@@ -1,20 +1,17 @@
 from __future__ import print_function
 import tensorflow as tf
 import numpy as np
+
 import TensorflowUtils as utils
 import read_MITSceneParsingData as scene_parsing
 import datetime
 import BatchDatsetReader as dataset
+import cv2 as cv
 from six.moves import xrange
-from collections import OrderedDict
-
-<<<<<<< HEAD:UNET.py
 
 """
     1. 这里的label就已经是灰度的了，也就意味着每个类别占一个像素值，如果是彩色的label就需要先通过映射变成单通道的
 """
-=======
->>>>>>> 4dc4b44abd990af177c5c0634c5ec1b10beb2737:UNET.py
 
 FLAGS = tf.flags.FLAGS
 tf.flags.DEFINE_integer("batch_size", "2", "batch size for training")
@@ -24,14 +21,12 @@ tf.flags.DEFINE_float("learning_rate", "1e-4", "Learning rate for Adam Optimizer
 tf.flags.DEFINE_string("model_dir", "Model_zoo/", "Path to vgg model mat")
 tf.flags.DEFINE_bool('debug', "False", "Debug mode: True/ False")
 tf.flags.DEFINE_string('mode', "visualize", "Mode train/ test/ visualize")
-<<<<<<< HEAD:UNET.py
-<<<<<<< HEAD:FCN.py
 
 MODEL_URL = 'http://www.vlfeat.org/matconvnet/models/beta16/imagenet-vgg-verydeep-19.mat'
 
 MAX_ITERATION = int(1e5 + 1)
-NUM_OF_CLASSESS = 151
-IMAGE_SIZE = 224
+NUM_OF_CLASSESS = 21
+IMAGE_SIZE = 320
 
 
 def vgg_net(weights, image):
@@ -139,92 +134,6 @@ def inference(image, keep_prob):
         annotation_pred = tf.argmax(conv_t3, dimension=3, name="prediction") # 返回NUM_OF_CLASSESS张heatmap的每个位置最大值对应的张数Index,而这个index可以直接当成预测的label值，这一层是模型做预测输出才用的，不需要训练
 
     return tf.expand_dims(annotation_pred, dim=3), conv_t3
-=======
-
-MAX_ITERATION = int(1e5 + 1)
-=======
-
-MAX_ITERATION = int(1e5 + 1)
->>>>>>> 4dc4b44abd990af177c5c0634c5ec1b10beb2737:UNET.py
-NUM_OF_CLASSESS = 21
-IMAGE_SIZE = 320
-# 训练模式将上面的mode换成train,可视化就viualize
-
-
-def inferenceUNET(image, keep_prob,layers=3):
-    # 还没考虑dropout 和 带权重进行交叉熵
-    features_root = 16
-    filter_size = 3
-    pool_size = 2
-    channels = 3
-    dw_h_convs = OrderedDict()
-    up_h_convs = OrderedDict()
-    pools = OrderedDict()
-    deconv = OrderedDict()
-    in_node = image
-
-    for layer in range(0, layers):
-        with tf.name_scope("down_conv_{}".format(str(layer))):
-            features = 2 ** layer * features_root  # 论文第一层的feature_num不是64吗？为啥这里是16
-            stddev = np.sqrt(2 / (filter_size ** 2 * features))
-            if layer == 0:
-                w1 = utils.weight_variable([filter_size, filter_size, channels, features], stddev, name="w1")
-            else:
-                w1 = utils.weight_variable([filter_size, filter_size, features // 2, features], stddev, name="w1")
-
-            w2 = utils.weight_variable([filter_size, filter_size, features, features], stddev, name="w2")
-            b1 = utils.bias_variable([features], name="b1")
-            b2 = utils.bias_variable([features], name="b2")
-
-            conv1 = utils.conv2d_basic(in_node, w1, b1)
-            tmp_h_conv = tf.nn.relu(conv1)
-            conv2 = utils.conv2d_basic(tmp_h_conv, w2, b2)
-            dw_h_convs[layer] = tf.nn.relu(conv2)
-
-            if layer < layers - 1:  # 意味着这里的layers是算到最下面那层的，所以论文的有5层，这里说的layer指的level,每个level固定3层
-                pools[layer] = utils.max_pool_2x2(dw_h_convs[layer])
-                in_node = pools[layer]
-
-    in_node = dw_h_convs[layers - 1]
-
-    # up layers
-    for layer in range(layers - 2, -1, -1):  # [3 2 1 0]
-        with tf.name_scope("up_conv_{}".format(str(layer))):
-            features = 2 ** (layer + 1) * features_root
-            stddev = np.sqrt(2 / (filter_size ** 2 * features))
-            # 要注意的是，上采样从小变大靠的是反卷积，而下采样从大变小靠的是池化，上采样是没有池化的
-            wd = utils.weight_variable([pool_size, pool_size, features // 2, features], stddev,
-                                       name="wd")  # 注意了这里反卷积参数位置与卷积的位置在in_channel和out_channel相反
-            bd = utils.bias_variable([features // 2], name="bd")
-            h_deconv = tf.nn.relu(utils.deconv2d(in_node, wd, pool_size) + bd)
-            h_deconv_concat = utils.crop_and_concat(dw_h_convs[layer],
-                                                    h_deconv)  # 把前面上采样层的对应进行拼接，具体过程就是裁剪下采样的样本，使尺寸相同，然后拼在后面即可，接的是池化前那一层，而不是统一Level的所有层
-            deconv[layer] = h_deconv_concat
-
-            w1 = utils.weight_variable([filter_size, filter_size, features, features // 2], stddev,
-                                       name="w1")  # 上面反卷积然后拼接，feature不是变多了吗？为啥这里还用feature.看漏了。。上面反卷积的时候feature变少了一半
-            w2 = utils.weight_variable([filter_size, filter_size, features // 2, features // 2], stddev, name="w2")
-            b1 = utils.bias_variable([features // 2], name="b1")
-            b2 = utils.bias_variable([features // 2], name="b2")
-
-            conv1 = utils.conv2d_basic(h_deconv_concat, w1, b1)
-            h_conv = tf.nn.relu(conv1)
-            conv2 = utils.conv2d_basic(h_conv, w2, b2)
-            in_node = tf.nn.relu(conv2)
-            up_h_convs[layer] = in_node
-
-    weight = utils.weight_variable([1, 1, features_root, NUM_OF_CLASSESS], stddev)
-    bias = utils.bias_variable([NUM_OF_CLASSESS], name="bias")
-    conv = utils.conv2d_basic(in_node, weight, bias)
-    output_map = tf.nn.relu(conv)
-    up_h_convs["out"] = output_map
-    annotation_pred = tf.argmax(output_map, dimension=3, name="prediction")
-
-    return annotation_pred,output_map
-<<<<<<< HEAD:UNET.py
->>>>>>> 4dc4b44abd990af177c5c0634c5ec1b10beb2737:UNET.py
-=======
->>>>>>> 4dc4b44abd990af177c5c0634c5ec1b10beb2737:UNET.py
 
 
 def train(loss_val, var_list):
@@ -242,7 +151,7 @@ def main(argv=None):
     image = tf.placeholder(tf.float32, shape=[None, IMAGE_SIZE, IMAGE_SIZE, 3], name="input_image")
     annotation = tf.placeholder(tf.int32, shape=[None, IMAGE_SIZE, IMAGE_SIZE, 1], name="annotation")
 
-    pred_annotation, logits = inferenceUNET(image, keep_probability,layers=4)
+    pred_annotation, logits = inference(image, keep_probability)
     tf.summary.image("input_image", image, max_outputs=2)
     tf.summary.image("ground_truth", tf.cast(annotation, tf.uint8), max_outputs=2)
     tf.summary.image("pred_annotation", tf.cast(pred_annotation, tf.uint8), max_outputs=2)
@@ -310,16 +219,27 @@ def main(argv=None):
                 saver.save(sess, FLAGS.logs_dir + "model.ckpt", itr)
 
     elif FLAGS.mode == "visualize":
-        valid_images, valid_annotations = validation_dataset_reader.get_random_batch(10)
+        valid_images, valid_annotations = validation_dataset_reader.get_random_batch(FLAGS.batch_size)
         pred = sess.run(pred_annotation, feed_dict={image: valid_images, annotation: valid_annotations,
                                                     keep_probability: 1.0})
         valid_annotations = np.squeeze(valid_annotations, axis=3)
-        pred = np.squeeze(pred) # reshape一下
+        pred = np.squeeze(pred, axis=3)
+        # # colormap = [[0, 0, 0], [128, 0, 0], [0, 128, 0], [128, 128, 0], [0, 0, 128],
+        # #             [128, 0, 128], [0, 128, 128], [128, 128, 128], [64, 0, 0], [192, 0, 0],
+        # #             [64, 128, 0], [192, 128, 0], [64, 0, 128], [192, 0, 128],
+        # #             [64, 128, 128], [192, 128, 128], [0, 64, 0], [128, 64, 0],
+        # #             [0, 192, 0], [128, 192, 0], [0, 64, 128]]
+        # # cm = np.array(colormap)
+        # # out = np.squeeze(cm[pred])
+        # cv.imwrite('2.jpg',np.squeeze(valid_images))
+        #
+        # cv.imwrite('out.jpg',np.squeeze(pred))
+        # cv.imwrite('1.jpg',np.squeeze(valid_annotations))
 
-        for itr in range(10):
-            utils.save_image(valid_images[itr].astype(np.uint8), FLAGS.logs_dir, name="inp_" + str(itr))
-            utils.save_image(valid_annotations[itr].astype(np.uint8), FLAGS.logs_dir, name="gt_" + str(itr))
-            utils.save_image(pred[itr].astype(np.uint8), FLAGS.logs_dir, name="pred_" + str(itr))
+        for itr in range(FLAGS.batch_size):
+            utils.save_image(valid_images[itr].astype(np.uint8), FLAGS.logs_dir, name="inp_" + str(5+itr))
+            utils.save_image(valid_annotations[itr].astype(np.uint8), FLAGS.logs_dir, name="gt_" + str(5+itr))
+            utils.save_image(pred[itr].astype(np.uint8), FLAGS.logs_dir, name="pred_" + str(5+itr))
             print("Saved image: %d" % itr)
 
 
