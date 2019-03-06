@@ -44,8 +44,10 @@ def create_image_lists(image_dir):
     for directory in directories:
         file_list = []
         image_list[directory] = []
-        file_glob = os.path.join(image_dir, "images", directory, '*.' + 'jpg')
-        file_list.extend(glob.glob(file_glob))
+        # 获取对应样本名称
+        with open(directory+'.txt','r') as file_to_read:
+            for filename in file_to_read.readlines():
+                file_list.append(filename.strip())
 
         if not file_list:
             print('No files found')
@@ -53,8 +55,9 @@ def create_image_lists(image_dir):
             for f in file_list:
                 filename = os.path.splitext(f.split("/")[-1])[0]
                 annotation_file = os.path.join(image_dir, "annotations", directory, filename + '.png')
+                image_file = os.path.join(image_dir, "images", directory, filename + '.jpg')
                 if os.path.exists(annotation_file):
-                    record = {'image': f, 'annotation': annotation_file, 'filename': filename}
+                    record = {'image': image_file, 'annotation': annotation_file, 'filename': filename}
                     image_list[directory].append(record)
                 else:
                     print("Annotation file not found for %s - Skipping" % filename)
@@ -62,5 +65,10 @@ def create_image_lists(image_dir):
         random.shuffle(image_list[directory])
         no_of_images = len(image_list[directory])
         print ('No. of %s files: %d' % (directory, no_of_images))
+
+    result = image_list
+
+    with open("Data_zoo/MIT_SceneParsing/MITSceneParsing.pickle", 'wb') as f:
+        pickle.dump(result, f, pickle.HIGHEST_PROTOCOL)
 
     return image_list

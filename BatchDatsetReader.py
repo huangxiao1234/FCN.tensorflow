@@ -47,7 +47,7 @@ class BatchDatset:
         if self.image_options.get("resize", False) and self.image_options["resize"]:
             resize_size = int(self.image_options["resize_size"])
             resize_image = misc.imresize(image,
-                                         [resize_size, resize_size], interp='nearest')
+                                         [resize_size, resize_size], interp='nearest')#这里加了nearest参数之后，原来的类别数量是不会变的，如果不加就会变
         else:
             resize_image = image
 
@@ -79,5 +79,7 @@ class BatchDatset:
         return self.images[start:end], self.annotations[start:end]
 
     def get_random_batch(self, batch_size):
-        indexes = np.random.randint(0, self.images.shape[0], size=[batch_size]).tolist()
+        # indexes = np.random.randint(0, self.images.shape[0], size=[batch_size]).tolist()
+        indexes = [i for i in range(batch_size)]
+        print(self.files[0])
         return self.images[indexes], self.annotations[indexes]
